@@ -13,6 +13,8 @@ Firmware (APP) for the M-VAVE FM-1 groovebox plus a browser simulator/workbench,
 
 Verification ladder: `tools/sanity.sh quick` (default) validates existing artifacts (post-link report, package fit, wasm cache, preview self-containment, official-release parity — only the build identity + its covering checksums may differ); `tools/sanity.sh full` adds rebuilds first (firmware/package built twice, byte-identical required, clean web rebuild).
 
+Publishing: `tools/publish.sh` always builds fresh via `build.sh --package` (never republishes stale artifacts — the published page is a static snapshot labeled by its embedded build identity) and pushes the integrated workbench to the `gh-pages` branch: `https://doohinkus.github.io/m-vave/`. It is idempotent (no commit when unchanged). Enabling Pages in the repo's Settings is a one-time manual owner step the script cannot do.
+
 Prerequisites for `build.sh`: Docker **running**; JieLi *Linux* toolchain (repo does not bundle it):
 
     mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli

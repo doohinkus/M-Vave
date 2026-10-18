@@ -48,6 +48,23 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 
 The web version builds from the included C sources. The first build downloads WASI SDK 27; set `FM1_WASI_SDK` to reuse an existing installation.
 
+### View the preview
+
+~~~sh
+open build/preview/index.html                  # macOS: opens in the default browser
+python3 -m http.server -d build/preview 8000   # or serve and visit http://localhost:8000
+~~~
+
+The page is self-contained and runs the simulator compiled at build time; after changing sources, rebuild first (`./build.sh --web` or `.\build.bat --web`) so the page reflects them. It never runs on its own — it is a frozen snapshot of a build, labeled by its embedded build identity.
+
+### Publish to GitHub Pages
+
+~~~sh
+./tools/publish.sh
+~~~
+
+Runs a fresh package build and pushes `build/official-web/FM1-Official-Open-Source.html` to the `gh-pages` branch as `index.html` (with `SHA256SUMS.txt`), printing the live URL and build identity. First publish only: enable Pages in the repo (Settings → Pages → Deploy from branch → `gh-pages`) — a one-time manual step; the workbench then appears at `https://<user>.github.io/<repo>/`. Re-publication is idempotent: no commit is made when the build is unchanged.
+
 Outputs: `build/preview/index.html` (preview), `build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` (firmware), `build/official-web/FM1-Official-Open-Source.html` (complete workbench).
 
 Hardware drivers are in `app/board/`. The audio interrupt calls `fm1_engine_render()`; `app/audio_output.c` handles USB/Bluetooth mixing and USB recording.

@@ -48,6 +48,23 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 
 网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。
 
+### 查看预览
+
+~~~sh
+open build/preview/index.html                  # macOS：用默认浏览器打开
+python3 -m http.server -d build/preview 8000   # 或本地起服务后访问 http://localhost:8000
+~~~
+
+页面自包含，运行的是编译时固化的模拟器；改动源码后须先重新编译（`./build.sh --web` 或 Windows 的 `.\build.bat --web`）再打开。页面本身不会自动更新——它是带内嵌构建标识的静态快照。
+
+### 发布到 GitHub Pages
+
+~~~sh
+./tools/publish.sh
+~~~
+
+每次全新执行打包构建，并把 `build/official-web/FM1-Official-Open-Source.html` 推到 `gh-pages` 分支作为 `index.html`（附 `SHA256SUMS.txt`），输出实际网址和构建标识。首次需在仓库设置中启用 Pages（Settings → Pages → Deploy from branch → `gh-pages`）——一次性手动操作；之后工作台位于 `https://<用户>.github.io/<仓库>/`。发布是幂等的：构建未变化时不产生新提交。
+
 输出：`build/preview/index.html`（预览）、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc`（固件）、`build/official-web/FM1-Official-Open-Source.html`（完整工作台）。
 
 硬件驱动在 `app/board/`；音频中断调用 `fm1_engine_render()`，`app/audio_output.c` 处理 USB／蓝牙混音和 USB 录音。
