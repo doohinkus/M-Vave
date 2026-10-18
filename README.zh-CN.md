@@ -10,6 +10,32 @@
 
 ## 编译
 
+### macOS / Linux
+
+编译在与 Windows 相同的 PowerShell 脚本中运行，环境为 `linux/amd64` Docker 容器（`build.sh`、`tools/docker/Dockerfile`），输出一致。
+
+1. 安装并启动 [Docker Desktop](https://www.docker.com/products/docker-desktop/)。
+2. 下载杰理 Linux 工具链（约 26 MB，一次即可）：
+
+   ~~~sh
+   mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli
+   ~~~
+
+   如装在别处，请将 `FM1_LINUX_TOOLCHAIN` 指到含 `pi32v2/` 的目录。
+3. 设置 `FM1_SOURCE_URL`：本次构建对应源码包的 HTTPS 下载地址，包内须含本次修改、许可声明和编译／安装脚本；未配置时，网页构建和打包会停止。
+4. 编译：
+
+   ~~~sh
+   ./build.sh --web       # 网页预览 -> build/preview/index.html
+   ./build.sh             # 固件 -> build/dx7/sdk.elf
+   ./build.sh --package   # 固件 + 工作台 -> build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc、
+                          # build/official-web/FM1-Official-Open-Source.html
+   ~~~
+
+首次运行会构建容器镜像（pwsh + curl）；首次网页编译会把 WASI SDK 27 下载到 `build/tools/`，可设置 `FM1_WASI_SDK` 复用已有安装。容器构建已验证：编译产物与官方发布逐字节一致，仅 32 字节构建标识不同（详见 `AGENTS.md`）。
+
+### Windows
+
 需要 Windows x64、PowerShell、`curl.exe` 和 `tar.exe`。编译固件还需安装[杰理 PI32v2 clang 4.0.1 r3 编译器](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html)，所在目录须含 `bin/clang.exe`。
 
 运行以下命令前，先将环境变量 `FM1_SOURCE_URL` 设置为本次构建对应源码包的 HTTPS 下载地址。包内须含本次修改、许可声明和编译／安装脚本；未配置时，网页构建和打包会停止。
@@ -21,17 +47,6 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 ~~~
 
 网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。
-
-### macOS / Linux
-
-`./build.sh` 在 `linux/amd64` Docker 容器内运行同一套 PowerShell 脚本，输出一致；需要 Docker 正在运行、[杰理 Linux 工具链](https://pkgman.jieliapp.com/s/linux-toolchain)（`mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli`；可用 `FM1_LINUX_TOOLCHAIN` 覆盖），`--web`／`--package` 还需 `FM1_SOURCE_URL`：
-
-~~~sh
-FM1_SOURCE_URL=... ./build.sh --web
-FM1_SOURCE_URL=... ./build.sh --package
-~~~
-
-容器构建已验证：编译产物与官方发布逐字节一致，仅 32 字节构建标识不同（Linux 编译器芯片级一致；详见 `AGENTS.md`）。
 
 输出：`build/preview/index.html`（预览）、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc`（固件）、`build/official-web/FM1-Official-Open-Source.html`（完整工作台）。
 
