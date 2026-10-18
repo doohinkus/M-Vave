@@ -38,29 +38,33 @@ function Build-Simulator {
     $sourceHash = Digest @($names | ForEach-Object { $_ + ':' + $inputs[$_] })
     $wasm = Join-Path $out 'simulator.wasm'
     $metadata = Join-Path $out 'simulator.json'
+    # Build-Web runs where its caller runs: Windows PowerShell (build.bat) or a
+    # linux/amd64 container (build.sh). Other host platforms must pin their asset hash.
+    $isWin = $env:OS -eq 'Windows_NT'
     if (!$WasiSdk) {
         $cache = Join-Path $root 'build/tools'
-        $WasiSdk = Join-Path $cache 'wasi-sdk-27.0-x86_64-windows'
-        if (!(Test-Path -LiteralPath (Join-Path $WasiSdk 'bin/clang.exe'))) {
+        $asset = if ($isWin) { 'wasi-sdk-27.0-x86_64-windows' } else { 'wasi-sdk-27.0-x86_64-linux' }
+        $WasiSdk = Join-Path $cache $asset
+        if (!(Test-Path -LiteralPath (Join-Path $WasiSdk "bin/clang$(if ($isWin) { '.exe' })"))) {
             [IO.Directory]::CreateDirectory($cache) | Out-Null
-            $archive = Join-Path $cache 'wasi-sdk-27.0-x86_64-windows.tar.gz'
-            $expected = '4a576c13125c91996d8cc3b70b7ea0612c2044598d2795c9be100d15f874adf6'
+            $archive = Join-Path $cache "$asset.tar.gz"
+            $expected = if ($isWin) { '4a576c13125c91996d8cc3b70b7ea0612c2044598d2795c9be100d15f874adf6' } else { 'b7d4d944c88503e4f21d84af07ac293e3440b1b6210bfd7fe78e0afd92c23bc2' }
             if (!(Test-Path -LiteralPath $archive) -or (Hash $archive) -cne $expected) {
-                Write-Host 'Downloading WASI SDK 27 (518 MiB). Set FM1_WASI_SDK to reuse an extracted compiler.'
-                Run 'curl.exe' @('--fail','--location','--retry','2','--output',$archive,
-                    'https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/wasi-sdk-27.0-x86_64-windows.tar.gz')
+                Write-Host "Downloading WASI SDK 27 ($asset). Set FM1_WASI_SDK to reuse an extracted compiler."
+                Run ($(if ($isWin) { 'curl.exe' } else { 'curl' })) @('--fail','--location','--retry','2','--output',$archive,
+                    "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/$asset.tar.gz")
             }
             if ((Hash $archive) -cne $expected) { throw 'WASI SDK archive SHA-256 mismatch.' }
-            Run 'tar.exe' @('-xzf',$archive,'-C',$cache)
+            Run ($(if ($isWin) { 'tar.exe' } else { 'tar' })) @('-xzf',$archive,'-C',$cache)
         }
     }
     $WasiSdk = [IO.Path]::GetFullPath($WasiSdk)
-    $compiler = Join-Path $WasiSdk 'bin/clang.exe'
+    $compiler = Join-Path $WasiSdk "bin/clang$(if ($isWin) { '.exe' })"
     if (!(Test-Path -LiteralPath $compiler) -or !(Test-Path -LiteralPath (Join-Path $WasiSdk 'share/wasi-sysroot'))) {
         throw 'Set FM1_WASI_SDK to an extracted WASI SDK 27 directory.'
     }
     # Switching SDKs or changing their files must invalidate the build cache.
-    $scanPath = if ($WasiSdk.StartsWith('\\?\')) { $WasiSdk } elseif ($WasiSdk.StartsWith('\\')) {
+    $scanPath = if (!$isWin) { $WasiSdk } elseif ($WasiSdk.StartsWith('\\?\')) { $WasiSdk } elseif ($WasiSdk.StartsWith('\\')) {
         '\\?\UNC\' + $WasiSdk.TrimStart('\')
     } else { '\\?\' + $WasiSdk }
     $toolStamp = Digest @($WasiSdk; Get-ChildItem -LiteralPath $scanPath -Recurse -File | Sort-Object FullName |

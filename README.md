@@ -22,6 +22,17 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 
 The web version builds from the included C sources. The first build downloads WASI SDK 27; set `FM1_WASI_SDK` to reuse an existing installation.
 
+### macOS / Linux
+
+`./build.sh` runs the same PowerShell scripts inside a `linux/amd64` Docker container and produces identical output; it needs Docker running, the [JieLi Linux toolchain](https://pkgman.jieliapp.com/s/linux-toolchain) (`mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli`; override with `FM1_LINUX_TOOLCHAIN`) and, for `--web`/`--package`, `FM1_SOURCE_URL`:
+
+~~~sh
+FM1_SOURCE_URL=... ./build.sh --web
+FM1_SOURCE_URL=... ./build.sh --package
+~~~
+
+The container build was verified to compile code identical to the official release, byte-for-byte except its 32-byte build identity (the Linux compiler is chip-identical; see `AGENTS.md` for details).
+
 Outputs: `build/preview/index.html` (preview), `build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` (firmware), `build/official-web/FM1-Official-Open-Source.html` (complete workbench).
 
 Hardware drivers are in `app/board/`. The audio interrupt calls `fm1_engine_render()`; `app/audio_output.c` handles USB/Bluetooth mixing and USB recording.

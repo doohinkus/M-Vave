@@ -30,7 +30,7 @@ function Test-Firmware {
     $elf = Join-Path $build 'sdk.elf'
     $report = Join-Path $build 'firmware-report.json'
     Write-Text $report '{"passed":false}'
-    $symbols = & (Join-Path $bin 'llvm-nm.exe') --print-size $elf
+    $symbols = & $nmTool --print-size $elf
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect ELF symbols.' }
     $info = New-Object 'Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
     $heap = [ordered]@{}
@@ -235,7 +235,7 @@ function Package-Firmware {
         $image = New-Object IO.MemoryStream
         try {
             foreach ($section in @('text','data','ram0_data','cache_ram_data')) {
-                Run (Join-Path $bin 'llvm-objcopy.exe') @('-O','binary','-j',(".$section"),$elf,("$section.bin"))
+                Run $objcopyTool @('-O','binary','-j',(".$section"),$elf,("$section.bin"))
                 $bytes = [IO.File]::ReadAllBytes((Join-Path $generated "$section.bin"))
                 $image.Write($bytes,0,$bytes.Length)
             }
@@ -291,23 +291,46 @@ $productMatch = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'app/vers
 if (!$productMatch.Success) { throw 'Set a compatible FM1_UPDATE_PRODUCT in app/version.h.' }
 $firmwareProduct = $productMatch.Groups[1].Value
 Write-Host "Build FM1 Official Open $releaseVersion"
+# Windows (build.bat) uses the pinned Windows toolchain; other hosts (build.sh)
+# use the matching JieLi Linux toolchain with the same contracts in the manifest.
+$isWin = $env:OS -eq 'Windows_NT'
 if (!$Toolchain) { $Toolchain = Join-Path $sdk 'tools' }
 $Toolchain = [IO.Path]::GetFullPath($Toolchain)
-if (Test-Path -LiteralPath (Join-Path $Toolchain 'clang.exe')) { $Toolchain = Split-Path -Parent $Toolchain }
-$bin = Join-Path $Toolchain 'bin'
-if (!(Test-Path -LiteralPath (Join-Path $bin 'clang.exe'))) { throw 'Install the matching JieLi PI32v2 r3 toolchain and set FM1_PI32_TOOLCHAIN to its directory containing bin/clang.exe. See README.md.' }
+if ($isWin) {
+    if (Test-Path -LiteralPath (Join-Path $Toolchain 'clang.exe')) { $Toolchain = Split-Path -Parent $Toolchain }
+    $clang = Join-Path $Toolchain 'bin/clang.exe'
+    $ldTool = Join-Path $Toolchain 'bin/pi32v2-ld.exe'
+    $goldPlugin = Join-Path $Toolchain 'bin/LLVMgold.dll'
+    $nmTool = Join-Path $Toolchain 'bin/llvm-nm.exe'
+    $objcopyTool = Join-Path $Toolchain 'bin/llvm-objcopy.exe'
+    $tcRoot = $Toolchain
+    $tcRequired = @('bin/clang.exe','bin/pi32v2-ld.exe','bin/LLVMgold.dll','bin/llvm-nm.exe','bin/llvm-objcopy.exe')
+    if (!(Test-Path -LiteralPath $clang)) { throw 'Install the matching JieLi PI32v2 r3 toolchain and set FM1_PI32_TOOLCHAIN to its directory containing bin/clang.exe. See README.md.' }
+} else {
+    if (Test-Path -LiteralPath (Join-Path $Toolchain 'bin/clang')) { $pi32 = $Toolchain; $tcRoot = Split-Path -Parent $Toolchain }
+    elseif (Test-Path -LiteralPath (Join-Path $Toolchain 'pi32v2/bin/clang')) { $pi32 = Join-Path $Toolchain 'pi32v2'; $tcRoot = $Toolchain }
+    else { $pi32 = $null }
+    if (!$pi32) { throw 'Install the JieLi PI32v2 r3 Linux toolchain and set FM1_PI32_TOOLCHAIN to its directory containing pi32v2/bin/clang. See README.md.' }
+    $clang = Join-Path $pi32 'bin/clang'
+    $ldTool = Join-Path $pi32 'bin/ld'
+    $goldPlugin = Join-Path $pi32 'bin/LLVMgold.so'
+    $nmTool = Join-Path $pi32 'bin/nm'
+    $objcopyTool = Join-Path $pi32 'bin/objcopy'
+    $tcRequired = @('pi32v2/bin/clang','pi32v2/bin/ld','pi32v2/bin/LLVMgold.so','pi32v2/bin/nm','pi32v2/bin/objcopy')
+}
 # Verify the matching SDK and toolchain before compiling APP.
 $manifest = Get-Content -LiteralPath (Join-Path $sdk 'manifest.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 if ($manifest.abi -ne 131072) { throw 'This application requires the matching 128-frame SDK.' }
-if ($manifest.external_toolchain) {
-    if ($manifest.external_toolchain.schema -ne 1 -or !$manifest.external_toolchain.files) { throw 'Invalid external toolchain manifest.' }
-    foreach ($required in @('bin/clang.exe','bin/pi32v2-ld.exe','bin/LLVMgold.dll','bin/llvm-nm.exe','bin/llvm-objcopy.exe')) {
-        if (!$manifest.external_toolchain.files.PSObject.Properties[$required]) { throw "Missing toolchain contract: $required" }
+$tcContract = if ($isWin) { 'external_toolchain' } else { 'external_toolchain_linux' }
+if ($manifest.$tcContract) {
+    if ($manifest.$tcContract.schema -ne 1 -or !$manifest.$tcContract.files) { throw 'Invalid external toolchain manifest.' }
+    foreach ($required in $tcRequired) {
+        if (!$manifest.$tcContract.files.PSObject.Properties[$required]) { throw "Missing toolchain contract: $required" }
     }
-    foreach ($entry in $manifest.external_toolchain.files.PSObject.Properties) {
+    foreach ($entry in $manifest.$tcContract.files.PSObject.Properties) {
         $name = $entry.Name
-        if ($name -cnotmatch '^(bin|lib)/[A-Za-z0-9_./-]+$' -or $name.Split('/') -contains '..' -or $entry.Value -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid external toolchain entry.' }
-        $file = Join-Path $Toolchain $name
+        if ($name -cnotmatch '^(pi32v2/)?(bin|lib)/[A-Za-z0-9_./-]+$' -or $name.Split('/') -contains '..' -or $entry.Value -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid external toolchain entry.' }
+        $file = Join-Path $tcRoot $name
         if (!(Test-Path -LiteralPath $file) -or (Hash $file) -cne $entry.Value) { throw "External toolchain does not match the SDK: $name. Install the matching version listed in sdk/manifest.json." }
     }
 }
@@ -329,7 +352,7 @@ foreach ($name in @($synth.sram_required) + @($synth.sram_optional)) {
 }
 foreach ($file in $manifest.files.PSObject.Properties) {
     $full = [IO.Path]::GetFullPath((Join-Path $root $file.Name))
-    if (!$full.StartsWith($sdk + '\', [StringComparison]::OrdinalIgnoreCase) -or
+    if (!$full.StartsWith($sdk + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
         (Hash $full) -ne $file.Value) { throw "SDK payload changed: $($file.Name)" }
 }
 $expected = @{}
@@ -344,14 +367,14 @@ $variantName = 'release'
 $variant = [pscustomobject]@{user_bytes=536576; frozen='sdk/lib/libfm1_engine.a'; update_family=7}
 $include = @('sdk/include','sdk/include/libc','app/synth','sdk/config','app','app/board')
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $root 'app') -Recurse -File |
-    Where-Object { $_.Extension -in @('.c','.S') -and !$_.FullName.StartsWith(([IO.Path]::GetFullPath((Join-Path $root 'app/synth'))+'\'),[StringComparison]::OrdinalIgnoreCase) } | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($root.Length+1).Replace('\','/') })
+    Where-Object { $_.Extension -in @('.c','.S') -and !$_.FullName.StartsWith(([IO.Path]::GetFullPath((Join-Path $root 'app/synth'))+[IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase) } | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($root.Length+1).Replace('\','/') })
 $extra = @('groove_sequence_render','groove_sequence_clock','groove_sequence_position','groove_sequence_transport','fm1_sea_decode_groups','fm1_codec_sea_mono_s16_run') + @($synth.sram_required) + @(
     'synth_dx7_render','synth_dx7_midi','synth_dx7_key','fm1_dx7_panic','fm_exp2_fixed','bass303_bank_render','bass303_bank_key','bass303_bank_set','drum808_kit_render','drum808_kit_trigger','psg_render','psg_key','psg_midi','psg_panic','psg_set','psg_get','pluck_render','pluck_key','pluck_midi','pluck_panic','pluck_set','pluck_get','fm1_mix128','fm1_mix_mono_stereo128','fm1_bus_output128','fm1_master_mix128','fm1_master_gain','fm1_declick128','fm1_render_begin','fm1_render_end','synth_dx7_active','bass303_bank_active','drum808_kit_active','psg_active','pluck_active','sampledrum_active','synth_dx7_limit','psg_limit','pluck_limit','sampledrum_limit','bass303_advance_idle','fm1_send128','fm1_fx_render','fm1_fx_clear','fm1_fx_active','sampledrum_render','sampledrum_trigger','sampledrum_panic','psg_active_chips')
 [IO.Directory]::CreateDirectory((Join-Path $build 'obj')) | Out-Null
 [IO.Directory]::CreateDirectory((Join-Path $build 'generated')) | Out-Null
 # All application units are rebuilt. Remove objects for deleted/renamed sources.
 $objectDirectory = [IO.Path]::GetFullPath((Join-Path $build 'obj'))
-if (!$objectDirectory.StartsWith($root + '\build\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid object directory.' }
+if (!$objectDirectory.StartsWith((Join-Path $root 'build') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid object directory.' }
 foreach ($file in Get-ChildItem -LiteralPath $objectDirectory -File) { Remove-Item -LiteralPath $file.FullName }
 $flags = @('-target','pi32v2','-integrated-as','-mcpu=r3','-mfprev1','-Wuninitialized',
     '-Wno-invalid-noreturn','-fno-common','-flto','-fallow-pointer-null','-fprefer-gnu-section',
@@ -380,9 +403,9 @@ try {
         if ($source -in @('app/project.c','app/transfer.c','app/samples.c','app/screen.c','app/presets.c')) { $options += '-Oz' }
         $arguments = @($options) + @('-MMD','-MF',($output + '.d'),'-c',$inputFile,'-o',$output)
         Write-Host "Compile $source"
-        Run (Join-Path $bin 'clang.exe') $arguments
+        Run $clang $arguments
         $objects += $output
-        $commands += [ordered]@{directory=$build; file=$inputFile; output=(Join-Path $build $output); arguments=@((Join-Path $bin 'clang.exe')) + $arguments}
+        $commands += [ordered]@{directory=$build; file=$inputFile; output=(Join-Path $build $output); arguments=@($clang) + $arguments}
     }
     # The device reports this source/SDK build identity after a browser update.
     # It is distinct from the final package SHA-256 (which covers every byte).
@@ -400,7 +423,7 @@ try {
         'const unsigned char fm1_build_id[32] = {' + ($idBytes -join ',') + '};' + "`n" +
         'const unsigned char fm1_update_identity[27] = "' + $firmwareProduct + '";' + "`n"
     Write-Text (Join-Path $build 'generated/build_identity.c') $identitySource
-    Run (Join-Path $bin 'clang.exe') (@($flags) + @('-c','generated/build_identity.c','-o','obj/build_identity.obj'))
+    Run $clang (@($flags) + @('-c','generated/build_identity.c','-o','obj/build_identity.obj'))
     $objects += 'obj/build_identity.obj'
     Write-Text (Join-Path $build 'build-identity.json') (@{profile=$Profile; family=$variantName; release_version=$releaseVersion; build_id=$buildIdentity} | ConvertTo-Json)
     $sbcRoot = 'sbc_decoder' + [char]10
@@ -408,7 +431,7 @@ try {
     $aclRx = ' + 4096'
     $linker = [IO.File]::ReadAllText((Join-Path $sdk 'config/linker.ld.in')).Replace('@SBC_DECODER@',$sbcRoot).Replace('@ACL_TX_EXTRA@',$aclTx).Replace('@ACL_RX_EXTRA@',$aclRx)
     Write-Text (Join-Path $build 'generated/linker') $linker
-    $link = @('--plugin',(Join-Path $bin 'LLVMgold.dll'),'-o','sdk.elf') + $objects + @(
+    $link = @('--plugin',$goldPlugin,'-o','sdk.elf') + $objects + @(
         '-flto','--plugin-opt=-pi32v2-always-use-itblock=false','--plugin-opt=-enable-ipra=true',
         '--plugin-opt=-pi32v2-merge-max-offset=4096','--plugin-opt=-pi32v2-enable-simd=true','--plugin-opt=mcpu=r3',
         '--plugin-opt=-global-merge-on-const','--plugin-opt=-inline-threshold=5','--plugin-opt=-inline-max-allocated-size=32',
@@ -422,7 +445,7 @@ try {
     Write-Text (Join-Path $build 'compile_commands.json') (ConvertTo-Json -InputObject @($commands) -Depth 6)
     Write-Text (Join-Path $build 'link-arguments.json') ($link | ConvertTo-Json)
     Write-Host "Link $Profile using prebuilt FM1 SDK"
-    Run (Join-Path $bin 'pi32v2-ld.exe') $link
+    Run $ldTool $link
     Test-Firmware
     if ($Package) {
         Package-Firmware
@@ -447,5 +470,5 @@ try {
             simulator_source_sha256=$web.simulator_source_sha256; simulator_bytes=$web.simulator_bytes;
             hardware_validated=$false; board_access=$false} | ConvertTo-Json)
     }
-    Write-Host "Firmware: $build\sdk.elf"
+    Write-Host "Firmware: $(Join-Path $build 'sdk.elf')"
 } finally { Pop-Location }

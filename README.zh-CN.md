@@ -22,6 +22,17 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 
 网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。
 
+### macOS / Linux
+
+`./build.sh` 在 `linux/amd64` Docker 容器内运行同一套 PowerShell 脚本，输出一致；需要 Docker 正在运行、[杰理 Linux 工具链](https://pkgman.jieliapp.com/s/linux-toolchain)（`mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli`；可用 `FM1_LINUX_TOOLCHAIN` 覆盖），`--web`／`--package` 还需 `FM1_SOURCE_URL`：
+
+~~~sh
+FM1_SOURCE_URL=... ./build.sh --web
+FM1_SOURCE_URL=... ./build.sh --package
+~~~
+
+容器构建已验证：编译产物与官方发布逐字节一致，仅 32 字节构建标识不同（Linux 编译器芯片级一致；详见 `AGENTS.md`）。
+
 输出：`build/preview/index.html`（预览）、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc`（固件）、`build/official-web/FM1-Official-Open-Source.html`（完整工作台）。
 
 硬件驱动在 `app/board/`；音频中断调用 `fm1_engine_render()`，`app/audio_output.c` 处理 USB／蓝牙混音和 USB 录音。
