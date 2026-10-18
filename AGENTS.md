@@ -11,6 +11,8 @@ Firmware (APP) for the M-VAVE FM-1 groovebox plus a browser simulator/workbench,
 - **Windows:** `build.bat` (plain `--web` `--package`) — the documented flow in README.md.
 - **macOS/Linux:** `./build.sh <same flags>` — runs the same PowerShell scripts via pwsh inside a `linux/amd64` Docker container (`tools/docker/Dockerfile`, built once as image `fm1-open-build`; first `./build.sh` builds it). Container runs as host UID, so `build/` files stay user-owned.
 
+Verification ladder: `tools/sanity.sh quick` (default) validates existing artifacts (post-link report, package fit, wasm cache, preview self-containment, official-release parity — only the build identity + its covering checksums may differ); `tools/sanity.sh full` adds rebuilds first (firmware/package built twice, byte-identical required, clean web rebuild).
+
 Prerequisites for `build.sh`: Docker **running**; JieLi *Linux* toolchain (repo does not bundle it):
 
     mkdir -p ~/.jieli && curl -fL https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli
