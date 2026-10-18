@@ -1,4 +1,4 @@
-# FM1 Open V13
+# Unofficial official FM1 M-Vave Firmware
 
 English · [简体中文](README.zh-CN.md)
 
