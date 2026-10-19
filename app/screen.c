@@ -147,7 +147,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 }
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
  * quarter of the 64-step pattern. All drawing and edits run on app_control. */
-enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, STARTUP };
+enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, DOT, STARTUP };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
 static const uint16_t colors[8] = {0x3c9f, 0x07bf, 0x4eae, 0x06d4, 0xac9f, 0xed18, 0xff06, 0xfba5};
@@ -225,6 +225,8 @@ static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
 static uint32_t arp_ms;
+static unsigned fx_down, fx_long;
+static uint32_t fx_ms;
 static char project_stored[13];
 static int project_stored_result;
 static uint32_t project_drawn_revision;
@@ -1357,6 +1359,34 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
         paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
                    i < boot_phase ? colors[i] : PANEL);
 }
+/* The dot page: the smallest possible time-driven animation. The phase is
+ * derived from frame_time on each 33 ms draw tick, cache slots skip all work
+ * while nothing changed, and the ordinary dirty-band pass moves the pixels.
+ * No sound: the dot toggles left/right. Sound (transport or live keys): it
+ * toggles up/down. */
+static void dot_draw(void)
+{
+    static const uint8_t dot_xy[4][2] = {{24, 120}, {196, 120}, {110, 56}, {110, 184}};
+    unsigned playing = 0;
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        if (frame_views[t].playing || midi_active[t]) { playing = 1; break; }
+    if (cache->title_cache != playing + 1U) {  /* ~0 sentinel on page entry */
+        cache->title_cache = playing + 1U;
+        paint_fill(0, 0, 240, 240, BACK);      /* title-block idiom: full clear */
+        paint_fill(0, 29, 240, 1, PANEL);
+        text(8, 8, "DOT", 2, ACCENT, BACK);
+        text(8, 36, playing ? "PLAYING" : "IDLE", 1, playing ? GREEN : DIM, BACK);
+        text(6, 231, "HOME BACK  FX EFFECTS", 1, DIM, BACK);
+    }
+    unsigned phase = (frame_time / 500U) & 1U; /* 2 Hz toggle */
+    uint32_t sig = (uint32_t)playing << 1 | phase;
+    if (cache->middle_cache == sig) return;
+    cache->middle_cache = sig;
+    for (unsigned i = 0; i < 4; ++i)           /* erase every candidate cell */
+        paint_fill(dot_xy[i][0], dot_xy[i][1], 20, 20, BACK);
+    paint_fill(dot_xy[playing * 2U + phase][0], dot_xy[playing * 2U + phase][1], 20, 20,
+               playing ? GREEN : ACCENT);
+}
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
     unsigned visible = boot_active ? STARTUP : glo_down && glo_used ? MIX : page;
@@ -1376,6 +1406,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
     if (visible == STARTUP) { boot_draw(); return; }
     const struct groove_view *views = frame_views, *v = &views[track];
     if (!paint_rendering) leds(v, visible);
+    if (visible == DOT) { dot_draw(); return; }
     if (visible == PRESET_BROWSER) {
         preset_draw();
         return;
@@ -1568,6 +1599,7 @@ static void draw_page(const struct fm1_ble_status *ble)
     if (glo_down && !glo_used) since = glo_ms;
     else if (edit_down && !edit_long) since = edit_ms;
     else if (arp_down && !arp_long) since = arp_ms;
+    else if (fx_down && !fx_long) since = fx_ms;
     else if (seq_down) since = seq_ms;
     else active = 0;
     unsigned width = active ? (unsigned)clamp((int)(frame_time - since), 0, 600) * 224U / 600U : 0;
@@ -1752,6 +1784,7 @@ void groove_screen_init(void)
     advanced_edit = edit_down = edit_long = 0;
     seq_down = 0;
     arp_down = arp_long = 0;
+    fx_down = fx_long = 0;
     memset(project_stored, 0, sizeof project_stored);
     cache->shown_page = ~0U;
     led_cache = button_led_cache = 0;
@@ -1820,6 +1853,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     if (pressed & BUTTON(ARP)) {
         arp_down = 1; arp_long = 0; arp_ms = now;
     }
+    if (!(controls->buttons & BUTTON(FX))) fx_down = fx_long = 0;
+    if (pressed & BUTTON(FX)) {
+        fx_down = 1; fx_long = 0; fx_ms = now;
+    }
     if (!(controls->buttons & BUTTON(EDIT))) edit_down = edit_long = 0;
     if (!(controls->buttons & BUTTON(SEQ))) seq_down = 0;
     if (pressed & BUTTON(SEQ)) {
@@ -1860,7 +1897,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         memset(key_note, 0xff, sizeof key_note);
         page = music_page = OVERVIEW;
         writing = glo_down = glo_used = project_reload = edit_down = edit_long = 0;
-        arp_down = arp_long = seq_down = rec_down = 0;
+        arp_down = arp_long = seq_down = rec_down = fx_down = fx_long = 0;
         groove_edit_record(0, track, cursor);
         return 1;
     }
@@ -1903,6 +1940,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     if (arp_down && !arp_long && now - arp_ms >= 600U) {
         arp_long = 1; if (page != ARP_EDIT) arp_page = 0; page = ARP_EDIT;
+        goto controls_done;
+    }
+    if (fx_down && !fx_long && now - fx_ms >= 600U) {
+        fx_long = 1; page = DOT;
         goto controls_done;
     }
     /* Panel shortcuts precede modal editors. A menu must not swallow a
@@ -2196,6 +2237,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 else { ble_view = ble_action = ble_forget = 0; ble_result = 0; }
             }
         }
+    } else if (page == DOT) {
+        /* Passive display: encoders are inert; panel keys still sound below. */
     } else {
         if (page != BLE) {
             unsigned tracks = page == OVERVIEW || page == STEPS || page == FM_QUICK || page == ARP_EDIT ||
@@ -2633,6 +2676,7 @@ int groove_screen_open(unsigned target)
     if (!release_keys()) return -1;
     blocked_keys |= previous_keys;
     glo_down = glo_used = edit_down = seq_down = arp_down = arp_long = rec_down = 0;
+    fx_down = fx_long = 0;
     if (parameter_page(target)) {
         if (!parameter_page(page)) subpage_return = page;
     } else advanced_edit = !quick && (target == FM_EDIT || target == TONE_EDIT);
