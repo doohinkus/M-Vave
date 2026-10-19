@@ -1359,33 +1359,61 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
         paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
                    i < boot_phase ? colors[i] : PANEL);
 }
+/* The banana pose: a crescent drawn as 15 columns of stacked 8px fills
+ * following an arc -- the boot-VU idiom with the shape in code, no bitmaps.
+ * `phase` mirrors the pose (belly down / belly up). On the 240x240 panel
+ * 8px is ~0.9mm. */
+static void banana_pose(unsigned phase)
+{
+    for (unsigned col = 0; col < 15; ++col) {
+        unsigned d = (col << 1) - 14;                /* -14, -12 .. 12, 14 */
+        unsigned sag = (44u * (unsigned)(d * d) + 112u) / 225u; /* 0..38 */
+        unsigned yc = phase ? 106u + sag : 150u - sag;         /* belly up / down */
+        unsigned x = 60u + col * 8u;
+        paint_fill(x, yc - 12u, 8, 24u, AMBER);
+        if (col == 0 || col == 14)                   /* green tips */
+            paint_fill(x, yc - 12u, 8, 8u, GREEN);
+    }
+}
 /* The dot page: the smallest possible time-driven animation. The phase is
  * derived from frame_time on each 33 ms draw tick, cache slots skip all work
  * while nothing changed, and the ordinary dirty-band pass moves the pixels.
- * No sound: the dot toggles left/right. Sound (transport or live keys): it
- * toggles up/down. */
+ * No sound (transport stopped): the little cyan dot toggles left/right.
+ * Transport running: the banana dances with the same phase. */
 static void dot_draw(void)
 {
-    static const uint8_t dot_xy[4][2] = {{24, 120}, {196, 120}, {110, 56}, {110, 184}};
+    /* Band-aligned geometry: each 8px cell sits wholly inside one 16-row
+     * band (rows 48..63, 112..127, 192..207 are all slack-friendly), so one
+     * position is exactly one DMA submit and a dot can never be split by a
+     * band boundary. 8px is ~0.9mm on the 1.54" 240x240 panel. */
+    static const uint8_t dot_xy[4][2] = {{24, 116}, {196, 116}, {110, 52}, {110, 196}};
     unsigned playing = 0;
+    /* The transport only: MIDI latches flip asynchronously to the draw tick
+     * and can change state between the two bands a 20px dot spans, leaving
+     * half of it rendered. Axis follows PLAY/STOP; live keys do not. */
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
-        if (frame_views[t].playing || midi_active[t]) { playing = 1; break; }
+        if (frame_views[t].playing) { playing = 1; break; }
     if (cache->title_cache != playing + 1U) {  /* ~0 sentinel on page entry */
         cache->title_cache = playing + 1U;
         paint_fill(0, 0, 240, 240, BACK);      /* title-block idiom: full clear */
         paint_fill(0, 29, 240, 1, PANEL);
-        text(8, 8, "DOT", 2, ACCENT, BACK);
-        text(8, 36, playing ? "PLAYING" : "IDLE", 1, playing ? GREEN : DIM, BACK);
+        text(84, 8, "BANANA", 2, ACCENT, BACK);
+        text(8, 36, playing ? "DANCING" : "IDLE", 1, playing ? GREEN : DIM, BACK);
         text(6, 231, "HOME BACK  FX EFFECTS", 1, DIM, BACK);
     }
     unsigned phase = (frame_time / 500U) & 1U; /* 2 Hz toggle */
     uint32_t sig = (uint32_t)playing << 1 | phase;
     if (cache->middle_cache == sig) return;
     cache->middle_cache = sig;
-    for (unsigned i = 0; i < 4; ++i)           /* erase every candidate cell */
-        paint_fill(dot_xy[i][0], dot_xy[i][1], 20, 20, BACK);
-    paint_fill(dot_xy[playing * 2U + phase][0], dot_xy[playing * 2U + phase][1], 20, 20,
-               playing ? GREEN : ACCENT);
+    if (!playing) {                            /* bored: the little cyan dot */
+        for (unsigned i = 0; i < 4; ++i)       /* erase every candidate cell */
+            paint_fill(dot_xy[i][0], dot_xy[i][1], 8, 8, BACK);
+        paint_fill(dot_xy[phase][0], dot_xy[phase][1], 8, 8, ACCENT);
+        return;
+    }
+    /* dancing: the banana, mirrored with every 500 ms half-period */
+    paint_fill(60, 94, 120, 68, BACK);         /* erase both poses' union */
+    banana_pose(phase);
 }
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
