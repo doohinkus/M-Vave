@@ -227,6 +227,7 @@ static unsigned arp_down, arp_long;
 static uint32_t arp_ms;
 static unsigned fx_down, fx_long;
 static uint32_t fx_ms;
+static unsigned ban_return;
 static char project_stored[13];
 static int project_stored_result;
 static uint32_t project_drawn_revision;
@@ -2313,7 +2314,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
     if (fx_down && !fx_long && now - fx_ms >= 600U) {
-        fx_long = 1; page = DOT;
+        fx_long = 1; ban_return = subpage_return; page = DOT;
         goto controls_done;
     }
     /* Panel shortcuts precede modal editors. A menu must not swallow a
@@ -2343,8 +2344,17 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         } else if (pressed & BUTTON(SEQ)) {
             page = STEPS; seq_page = 0; step_follow = 1; cache->shown_page = ~0U;
         } else if (pressed & BUTTON(FX)) {
-            if (page != EFFECTS) effects_page = 0;
-            open_subpage(EFFECTS);
+            if (page == DOT) {
+                /* Leaving the banana: restore the toggle's memory, so the
+                 * next short tap cannot land on the banana again; only
+                 * another long-press may. */
+                subpage_return = ban_return;
+                effects_page = 0;
+                page = EFFECTS;
+            } else {
+                if (page != EFFECTS) effects_page = 0;
+                open_subpage(EFFECTS);
+            }
         } else if (pressed & BUTTON(SCL)) {
             if (groove_source_type(track) == GROOVE_DX7) {
                 op = operator_selected[track] < 6 ? operator_selected[track] : 0;
