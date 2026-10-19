@@ -4,7 +4,7 @@
 
 8 轨、8 槽采样、16 套 FX DEMO，已含 SDK（二进制库与接口头文件）。
 
-[在线工作台与开发包](https://open.m-vave.com/fm1-workbench) · [官方论坛](https://forum.m-vave.com)
+[在线工作台](https://doohinkus.github.io/M-Vave/) · [开发包](https://open.m-vave.com/fm1-workbench) · [官方论坛](https://forum.m-vave.com)
 
 在工作台中点击“源码与 SDK”，下载与线上版本对应的开发包。
 
