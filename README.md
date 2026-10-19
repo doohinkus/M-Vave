@@ -4,7 +4,7 @@ English · [简体中文](README.zh-CN.md)
 
 8 tracks, 8 sample slots, 16 FX demos; binary SDK included.
 
-[Workbench and development kit](https://open.m-vave.com/fm1-workbench) · [Official forum](https://forum.m-vave.com)
+[Workbench](https://doohinkus.github.io/M-Vave/) · [Development kit](https://open.m-vave.com/fm1-workbench) · [Official forum](https://forum.m-vave.com)
 
 Select "Source + SDK" in the workbench to download the development kit matching the online release.
 
