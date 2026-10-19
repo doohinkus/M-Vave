@@ -1359,27 +1359,32 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
         paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
                    i < boot_phase ? colors[i] : PANEL);
 }
-/* The banana pose: a crescent drawn as 15 columns of stacked 8px fills
+/* The banana dance: a crescent drawn as 15 columns of stacked 8px fills
  * following an arc -- the boot-VU idiom with the shape in code, no bitmaps.
- * `phase` mirrors the pose (belly down / belly up). On the 240x240 panel
- * 8px is ~0.9mm. */
-static void banana_pose(unsigned phase)
+ * `step` cycles an 8-step loop (~250 ms each): alternate steps mirror the
+ * pose (belly up / down), alternate quarters lean the whole crescent and
+ * hop it up on the strong beat. On the 240x240 panel 8px is ~0.9mm. */
+static void banana_pose(unsigned step)
 {
+    unsigned pose = step & 1U;                  /* belly down / up */
+    unsigned beat = (step >> 1) & 1U;           /* the sway's two extremes */
+    int lean = beat ? 4 : -4;                   /* tilt, ±4 */
+    int hop = beat ? -4 : 0;                    /* up on the strong beat */
     for (unsigned col = 0; col < 15; ++col) {
         unsigned d = (col << 1) - 14;                /* -14, -12 .. 12, 14 */
         unsigned sag = (44u * (unsigned)(d * d) + 112u) / 225u; /* 0..38 */
-        unsigned yc = phase ? 106u + sag : 150u - sag;         /* belly up / down */
-        unsigned x = 60u + col * 8u;
-        paint_fill(x, yc - 12u, 8, 24u, AMBER);
-        if (col == 0 || col == 14)                   /* green tips */
-            paint_fill(x, yc - 12u, 8, 8u, GREEN);
+        unsigned yc = pose ? 106u + sag : 150u - sag;   /* belly up / down */
+        int y = (int)yc + lean * ((int)col - 7) / 7 + hop;  /* the sway line */
+        paint_fill(60u + col * 8u, (unsigned)y - 12u, 8, 24u, AMBER);
+        if (col == 0 || col == 14)                  /* green tips */
+            paint_fill(60u + col * 8u, (unsigned)y - 12u, 8, 8u, GREEN);
     }
 }
-/* The dot page: the smallest possible time-driven animation. The phase is
- * derived from frame_time on each 33 ms draw tick, cache slots skip all work
- * while nothing changed, and the ordinary dirty-band pass moves the pixels.
- * No sound (transport stopped): the little cyan dot toggles left/right.
- * Transport running: the banana dances with the same phase. */
+/* The dot page: ... derived from frame_time on each 33 ms draw tick, cache
+ * slots skip all work while nothing changed, and the ordinary dirty-band
+ * pass moves the pixels. No sound (transport stopped): the little cyan dot
+ * toggles left/right at 500 ms. Transport running: the banana dances on an
+ * 8-step cycle at ~250 ms. */
 static void dot_draw(void)
 {
     /* Band-aligned geometry: each 8px cell sits wholly inside one 16-row
@@ -1401,8 +1406,9 @@ static void dot_draw(void)
         text(8, 36, playing ? "DANCING" : "IDLE", 1, playing ? GREEN : DIM, BACK);
         text(6, 231, "HOME BACK  FX EFFECTS", 1, DIM, BACK);
     }
-    unsigned phase = (frame_time / 500U) & 1U; /* 2 Hz toggle */
-    uint32_t sig = (uint32_t)playing << 1 | phase;
+    unsigned phase = (frame_time / 500U) & 1U; /* 2 Hz: the bored dot */
+    unsigned step = (frame_time / 250U) & 7U;  /* ~250 ms: the dance cycle */
+    uint32_t sig = (uint32_t)playing << 3U | (playing ? step : phase);
     if (cache->middle_cache == sig) return;
     cache->middle_cache = sig;
     if (!playing) {                            /* bored: the little cyan dot */
@@ -1411,9 +1417,9 @@ static void dot_draw(void)
         paint_fill(dot_xy[phase][0], dot_xy[phase][1], 8, 8, ACCENT);
         return;
     }
-    /* dancing: the banana, mirrored with every 500 ms half-period */
-    paint_fill(60, 94, 120, 68, BACK);         /* erase both poses' union */
-    banana_pose(phase);
+    /* dancing: swaying and hopping */
+    paint_fill(60u, 88u, 120u, 76u, BACK);     /* erase every dance step's union */
+    banana_pose(step);
 }
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
