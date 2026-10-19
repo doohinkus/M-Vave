@@ -57,6 +57,18 @@ python3 -m http.server -d build/preview 8000   # 或本地起服务后访问 htt
 
 页面自包含，运行的是编译时固化的模拟器；改动源码后须先重新编译（`./build.sh --web` 或 Windows 的 `.\build.bat --web`）再打开。页面本身不会自动更新——它是带内嵌构建标识的静态快照。
 
+### 从命令行刷写固件
+
+~~~sh
+pip3 install mido python-rtmidi
+python3 tools/fm1_install.py --info                            # 先看：当前连接的 FM-1 的身份
+python3 tools/fm1_install.py --info build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc
+python3 tools/fm1_install.py build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc --force
+python3 tools/fm1_install.py build/tools/official-V13.fwsc     # 回到官方开源包
+~~~
+
+需要能传数据的 USB 线。`--info` 只读；带上包参数时会把设备身份与包身份并列打印，先看清匹配再动手。自制包没有 loader 标记，需要 `--force`；未经修改的官方开源包（与 `tools/sanity.sh` 校验一致性所固定的同一产物；可用 `curl -fL -o build/tools/official-V13.fwsc https://open.m-vave.com/assets/fm1/c35330f1cad641f38908a6269c7316fdaf4ffb8b1091a7b3282fa31b9be9fe74.bin` 重新下载）不需要。设备先检查包并启动更新 loader，经 SysEx 读入整包并写入，完成后重启。刷写被中断时 FM-1 会停留在更新模式：重新插线并再次运行安装即可续写。自 Felucca 的命令行安装器移植（GPL 工具，保留上游署名）。刷写风险自负：先备份工程与采样，写入过程中绝不拔线，并随时备有一份官方 `FM1_OFFICIAL_OPEN.fwsc` 作为恢复途径。
+
 ### 发布到 GitHub Pages
 
 ~~~sh

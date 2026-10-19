@@ -42,7 +42,7 @@ LOADER_MARK = b"FELUCCA-LOADER-1"
 # Returning to it is allowed without --force, so the stock escape hatch always
 # survives a failed experiment.
 STOCK_V13_SHA256 = "c35330f1cad641f38908a6269c7316fdaf4ffb8b1091a7b3282fa31b9be9fe74"
-PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
+PORT_RE = re.compile(r"fm-1|fm1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
 
 # seconds; the tests shorten them
 DELAY = {"open": 0.3, "start": 2.0, "reply": 0.01, "loader": 3.0, "reboot": 3.0, "retry": 1.0,
@@ -123,7 +123,9 @@ def parse_identity(pkt):
     if len(pkt) < 2 or pkt[0] != 0xF0 or pkt[-1] != 0xF7:
         return None
     d = unpack7(pkt[1:-1])
-    if len(d) != 34 or d[:3] != b"\x00\x59\x11":
+    # FM-1 open V13 answers 33 bytes: no trailing checksum byte. The Felucca
+    # fork and its V15 base answer 34. Both carry the same identity text.
+    if len(d) not in (33, 34) or d[:3] != b"\x00\x59\x11":
         return None
     txt = printable(d[6:33].rstrip(b"\0"))
     m = re.fullmatch(r"([^_]+)_(\d+)", txt)
