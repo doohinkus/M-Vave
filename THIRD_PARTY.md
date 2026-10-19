@@ -9,6 +9,7 @@ Project-owned public APP sources: [GPLv3 with the FM1 SDK linking exception](LIC
 | SVF | [stmlib](https://github.com/pichenettes/stmlib/tree/d18def816c51d1da0c108236928b2bbd25c17481), MIT; fixed-rate filter adaptation. |
 | FM model | [MSFA](https://github.com/google/music-synthesizer-for-android/tree/f67d41d313b7dc85f6fb99e79e515cc9d208cfff) / [Dexed msfa](https://github.com/asb2m10/dexed/tree/eebb748b70c5a1338afa3945e8b1ea783c9c02fe/source/msfa), Apache-2.0; C adaptation of algorithms, envelopes, LFO and note scaling, with FM1 arithmetic and controls. |
 | PSG | [emu2149](https://github.com/digital-sound-antiques/emu2149/tree/441f3dc295a9b82db16921461f0678b483db8304), MIT; memory/table adaptation and ultrasonic output fix. |
+| Dancing banana art | [Trym Stene's Dancing Banana](https://trymstene.com), free to download, share and remix; 8-frame RGB565 adaptation in `app/screen.c`. |
 | SEA codec | [SEA](https://github.com/Daninet/sea-codec), MIT; fixed-format encoder, decoder and tables. |
 | Packager | [jl-misctools](https://github.com/kagaimiq/jl-misctools/tree/0a5b12db0ef38f3042acffbe2452730a37fd2405), MIT; format/codec adaptation with FM1 validation and layout. |
 | Native C runtime | `sdk/lib/libc.a`, Newlib-derived routines; native runtime notices below. |

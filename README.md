@@ -57,6 +57,18 @@ python3 -m http.server -d build/preview 8000   # or serve and visit http://local
 
 The page is self-contained and runs the simulator compiled at build time; after changing sources, rebuild first (`./build.sh --web` or `.\build.bat --web`) so the page reflects them. It never runs on its own — it is a frozen snapshot of a build, labeled by its embedded build identity.
 
+### Flash the firmware from the command line
+
+~~~sh
+pip3 install mido python-rtmidi
+python3 tools/fm1_install.py --info                            # first: the connected FM-1's identity
+python3 tools/fm1_install.py --info build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc
+python3 tools/fm1_install.py build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc --force
+python3 tools/fm1_install.py build/tools/official-V13.fwsc     # back to the official open package
+~~~
+
+Needs a USB *data* cable. `--info` is read-only; with a package argument it prints the device's identity beside the package's, so a mismatch shows before anything is sent. Own builds carry no loader marker and need `--force`; the unmodified official open package (the same artifact `tools/sanity.sh` pins for the parity check; re-fetch it with `curl -fL -o build/tools/official-V13.fwsc https://open.m-vave.com/assets/fm1/c35330f1cad641f38908a6269c7316fdaf4ffb8b1091a7b3282fa31b9be9fe74.bin`) installs without it. The device checks and starts its update loader, reads the package over SysEx and writes it, then restarts. If an install is cut off, the FM-1 stays in update mode: replug and run the install again to finish. Ported from Felucca's CLI installer (GPL tool, upstream attribution kept). Flashing is at your own risk: back up projects and samples first, never unplug during a write, and keep a stock `FM1_OFFICIAL_OPEN.fwsc` on hand as the recovery path.
+
 ### Publish to GitHub Pages
 
 ~~~sh
