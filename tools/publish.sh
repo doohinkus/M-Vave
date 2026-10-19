@@ -15,7 +15,10 @@ command -v python3 >/dev/null 2>&1 || FAIL 'python3 is required'
 command -v curl >/dev/null 2>&1 || FAIL 'curl is required'
 
 PUSH_URL=$(git remote get-url doohinkus 2>/dev/null || git remote get-url origin)
-LIVE=$(printf '%s' "$PUSH_URL" | sed -E 's#\.git$##' | sed -E 's#https://github\.com/([^/]+)/([^/]+)$#https://\1.github.io/\2/#' | tr '[:upper:]' '[:lower:]')
+# Pages serves the owner lowercase but the repo name in its exact case.
+OWNER=$(printf '%s' "$PUSH_URL" | sed -E 's#\.git$##; s#https://github\.com/([^/]+)/[^/]+#\1#' | tr '[:upper:]' '[:lower:]')
+REPO=$(printf '%s' "$PUSH_URL" | sed -E 's#\.git$##; s#https://github\.com/[^/]+/([^/]+)#\1#')
+LIVE="https://${OWNER}.github.io/${REPO}/"
 
 export FM1_SOURCE_URL="${FM1_SOURCE_URL:-https://open.m-vave.com/releases/V13/2a3b2ede16ac49c867831315714ef9d8c532c70ce28ce1dcf3fc76f0a9f68f57/FM1-Open-V13-Development-Kit.zip}"
 SAY 'building firmware + integrated workbench (log: build/publish.log)'
