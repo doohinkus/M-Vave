@@ -434,21 +434,28 @@ EXPORT("sim_bt_pcm") int sim_bt_pcm(void)
     return 0;
 }
 /* Headless end-to-end check of the grab pipeline: link, arm, feed a sine,
- * stop, commit, rebind. Returns 0 on success or a negative stage marker. */
-EXPORT("sim_capture_selftest") int sim_capture_selftest(unsigned blocks)
+ * stop, commit, rebind. master=1 records the Q23 master mix instead.
+ * Returns 0 on success or a negative stage marker. */
+EXPORT("sim_capture_selftest") int sim_capture_selftest(unsigned blocks, unsigned master)
 {
     if (blocks < 8 || blocks > 1600u) return -1;   /* 0.1 .. 20 s of input */
     sim_bt_link(1);
+    fm1_capture_set_source(master ? FM1_CAPTURE_MASTER : FM1_CAPTURE_BT);
     fm1_capture_arm();
     if (fm1_capture_state() != FM1_CAPTURE_RECORDING) return -2;
     for (unsigned b = 0; b < blocks; ++b) {
-        int16_t block[FM1_BLOCK_WORDS];
+        int16_t bt[FM1_BLOCK_WORDS];
+        int32_t mix[FM1_BLOCK_WORDS];
         for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
             unsigned at = b * FM1_BLOCK_FRAMES + i;
             int16_t s = (int16_t)(9000 * (int)((at * 110) % 44100) / 44100);
-            block[2 * i] = block[2 * i + 1] = s;
+            bt[2 * i] = bt[2 * i + 1] = s;
+            mix[2 * i] = mix[2 * i + 1] = (int32_t)s << 8;   /* Q23 */
         }
-        fm1_capture_feed(block, FM1_BLOCK_FRAMES);
+        if (master)
+            fm1_capture_block(NULL, 0, mix);
+        else
+            fm1_capture_block(bt, FM1_BLOCK_FRAMES, NULL);
         fm1_capture_poll();
     }
     fm1_capture_stop();
@@ -457,6 +464,7 @@ EXPORT("sim_capture_selftest") int sim_capture_selftest(unsigned blocks)
         fm1_capture_poll();
     int result = fm1_capture_state() == FM1_CAPTURE_SAVED ? 0 : -3;
     fm1_capture_poll();            /* let the result page settle */
+    fm1_capture_set_source(FM1_CAPTURE_BT);
     return result;
 }
 int fm1_usb_audio_write(const int32_t *pcm, unsigned frames)

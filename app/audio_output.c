@@ -37,9 +37,7 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     if (bt_frames == FM1_BLOCK_FRAMES) {
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i)
             output[i] = limit((int64_t)output[i] + (int32_t)bluetooth_pcm[i] * (int32_t)(output_gain * 2U));
-        fm1_capture_feed(bluetooth_pcm, FM1_BLOCK_FRAMES);
-    } else if (!bt_frames) {
-        fm1_capture_feed(NULL, FM1_BLOCK_FRAMES);   /* underrun: capture silence */
     }
+    fm1_capture_block(bluetooth_pcm, bt_frames, output);
     (void)fm1_usb_audio_write(output, FM1_BLOCK_FRAMES);
 }

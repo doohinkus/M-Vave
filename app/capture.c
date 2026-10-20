@@ -91,6 +91,7 @@ static void generate_resample(void)
 
 static int16_t ring[RING_BLOCKS][FM1_BLOCK_WORDS];
 static volatile uint8_t ring_head, ring_tail, capturing;
+static volatile uint8_t source;        /* enum fm1_capture_source */
 static volatile unsigned ring_drops;
 
 static enum fm1_capture_state state;
@@ -131,6 +132,14 @@ static void cleanup(void)
     fm1_sea_encoder_init(&encoder);
 }
 
+void fm1_capture_set_source(unsigned s)
+{
+    if (state == FM1_CAPTURE_RECORDING || state == FM1_CAPTURE_COMMIT) return;
+    source = s == FM1_CAPTURE_MASTER ? FM1_CAPTURE_MASTER : (uint8_t)FM1_CAPTURE_BT;
+}
+
+unsigned fm1_capture_source(void) { return source; }
+
 enum fm1_capture_state fm1_capture_state(void) { return state; }
 enum fm1_capture_error fm1_capture_error(void) { return error_code; }
 unsigned fm1_capture_slot(void) { return target_slot; }
@@ -145,17 +154,20 @@ unsigned fm1_capture_deciseconds(void) { return capacity_ds; }
 
 /* Audio interrupt. Single-producer/single-consumer ring; the producer drops
  * its own block when the consumer stalls and never touches the tail. */
-FM1_AUDIO_CODE void fm1_capture_feed(const int16_t *stereo, unsigned frames)
+FM1_AUDIO_CODE void fm1_capture_block(const int16_t *bt, int bt_frames,
+                                      const int32_t *master)
 {
-    if (!capturing || frames != FM1_BLOCK_FRAMES) return;
+    if (!capturing) return;
     unsigned head = ring_head, next = head + 1 == RING_BLOCKS ? 0 : head + 1;
     if (next == ring_tail) {           /* consumer stalled: lose the newest */
         ring_drops++;
         return;
     }
     int16_t *slot = ring[head];
-    if (stereo) {
-        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) slot[i] = stereo[i];
+    if (source == FM1_CAPTURE_MASTER && master) {
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) slot[i] = (int16_t)(master[i] >> 8);
+    } else if (bt_frames == FM1_BLOCK_FRAMES && bt) {
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) slot[i] = bt[i];
     } else {
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) slot[i] = 0;
     }
@@ -181,7 +193,7 @@ void fm1_capture_arm(void)
 
     struct fm1_bluetooth_status radio;
     fm1_bluetooth_get_status(&radio);
-    if (!radio.audio_connected) {
+    if (source == FM1_CAPTURE_BT && !radio.audio_connected) {
         error_code = FM1_CAPTURE_NO_BT;
         state = FM1_CAPTURE_ERROR;
         done_at = fm1_millis();

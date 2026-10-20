@@ -1274,14 +1274,15 @@ static void seconds_label(char out[13], unsigned centis)
 static void capture_draw(void)
 {
     enum fm1_capture_state st = fm1_capture_state();
+    unsigned source = fm1_capture_source();
     uint32_t sig = (uint32_t)st * 33u + (uint32_t)fm1_capture_error() * 33u
         + fm1_capture_slot() * 33u + fm1_capture_drops() * 33u
-        + (frame_time >> 8) + (fm1_capture_ms() >> 7);   /* ~8 body repaints/s */
+        + source * 33u + (frame_time >> 8) + (fm1_capture_ms() >> 7);
     if (cache->middle_cache == sig) return;
     cache->middle_cache = sig;
     paint_fill(0, 32, 240, 208, BACK);
     memset(cache->foot_cache, 0xff, sizeof cache->foot_cache);
-    text(8, 42, "GRAB BT AUDIO", 2, ACCENT, BACK);
+    text(8, 42, "GRAB AUDIO", 2, ACCENT, BACK);
     unsigned slot = fm1_capture_slot();
     if (slot < 8) {
         char pad[16] = "PAD ";
@@ -1320,12 +1321,15 @@ static void capture_draw(void)
         text(8, 110, messages[code <= FM1_CAPTURE_FLASH ? code : FM1_CAPTURE_FLASH], 1, AMBER, BACK);
     } else {
         text(8, 110, "READY", 2, TEXT, BACK);
-        text(8, 146, "PHONE PLAYS - FM1 RECORDS", 1, DIM, BACK);
+        text(8, 146, source ? "SOURCE MASTER MIX" : "SOURCE BT AUDIO", 1, TEXT, BACK);
+        text(8, 165, source ? "RECORDS WHAT THE FM1 PLAYS"
+                            : "PHONE PLAYS - FM1 RECORDS", 1, DIM, BACK);
     }
     if (fm1_capture_drops() && st == FM1_CAPTURE_RECORDING)
         text(8, 165, "INPUT OVERLOAD", 1, AMBER, BACK);
     text(8, 231, st == FM1_CAPTURE_RECORDING ? "PLAY STOP  HOME DISCARD"
-                                             : "PLAY RECORD  HOME BACK", 1, DIM, BACK);
+                                             : "K1 SOURCE  PLAY RECORD  HOME BACK",
+         1, DIM, BACK);
 }
 
 static __attribute__((noinline)) void edit_page_draw(unsigned visible)
@@ -2573,6 +2577,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     if (page == CAPTURE) {
         play_handled = 1;              /* PLAY drives the take, not the transport */
         enum fm1_capture_state st = fm1_capture_state();
+        if (controls->encoders[0])
+            fm1_capture_set_source(fm1_capture_source() ^ 1u);   /* ignored mid-take */
         if ((pressed & BUTTON(PLAY)) && st != FM1_CAPTURE_COMMIT) {
             if (st == FM1_CAPTURE_RECORDING) fm1_capture_stop();
             else fm1_capture_arm();

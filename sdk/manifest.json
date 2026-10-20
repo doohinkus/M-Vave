@@ -4,7 +4,7 @@
   "toolchain": "JieLi PI32v2 clang 4.0.1 r3",
   "library_format": "Native archives: ELF32 PI32v2, no LLVM bitcode or DWARF.",
   "files": {
-    "sdk/Build.ps1": "d12987fcb68c7a0be66eb683ec676b4f2855e690d71762f49b069b805e2ff60d",
+    "sdk/Build.ps1": "fe2eca5bc96d4d929d45859d99b1615f2609d5e2e7844d7d98281cd638808cbe",
     "sdk/I18n.js": "27c8e2738fb3b5987c12e7364b0d940885542c39fb734e9da0a99674426ba49c",
     "sdk/Package.cs": "1073026536b64f0d90a60f1a4229703a7fd8d2eaefee2310d8161a4dabdbe2dd",
     "sdk/Samples.js": "4455e98c0c138ffb095b2a87373fdb76999d1012169d1ece20f3d72f1ae3fdbc",
