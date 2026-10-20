@@ -41,11 +41,24 @@ Directory containing `pi32v2/bin/clang` (default `~/.jieli/toolchain`, override 
 - **Web simulator** compiles `app/` (except `app/board/`), `web/`, `third_party/synth` with WASI SDK under `-DFM1_HOST_TEST -DFM1_OPEN_WEB -Wall -Wextra -Werror`: warnings are errors, and any edit to those trees invalidates the wasm cache. This is the fastest full-compile check of shared code in the container — run `./build.sh --web` after C changes.
 - Hardware drivers exist only in `app/board/`; host/device code splits on `#ifdef FM1_HOST_TEST`.
 - Audio-path code/data must be marked `FM1_AUDIO_CODE` / `FM1_AUDIO_DATA` (`sdk/include/fm1.h`; no-ops on host): audio keeps rendering during Flash programming, and the build verifies audio callbacks sit in internal SRAM (0x01c00000–0x01c80000).
-- Per-file compile rules in `sdk/Build.ps1`: `app/screen.c`, `app/transfer.c`, `app/board/panel.c` compile `-fno-lto` (the PI32 LTO plugin can drop their definitions against weak SDK defaults); `project.c`/`transfer.c`/`samples.c`/`screen.c`/`presets.c` compile `-Oz`, everything else `-O2`.
+- Per-file compile rules in `sdk/Build.ps1`: `app/screen.c`, `app/transfer.c`, `app/board/panel.c` compile `-fno-lto` (the PI32 LTO plugin can drop their definitions against weak SDK defaults); `project.c`/`transfer.c`/`samples.c`/`screen.c`/`presets.c`/`capture.c` compile `-Oz`, everything else `-O2`.
+
+## Live capture (app/capture.c)
+
+EDIT+REC on a SAMPLER track opens the GRAB page: records Bluetooth audio or the master mix into the sample bank. Internals an agent must know:
+
+- The ISR entry is `fm1_capture_block` (listed in `sdk/Build.ps1`'s audio-SRAM verification set); it copies the BT block or converts the Q23 master mix into an SPSC ring, dropping its own block when the control task stalls. Everything else runs on the control task from `groove_transfer_poll`.
+- The polyphase table (320 phases × 32 taps, 44.1→32 kHz) is generated at boot into BSS by `fm1_capture_arm` from `app/capture_sin.h` (regenerate with `tools/gen-resample-table.py`). Do not move it to flash rodata — see the flash budget note below.
+- Takes stream through `web/synth/sea_encode.h` into a heap staging buffer sized from real malloc slack at arm time (~4–8 s; RAM is plentiful, flash is not).
+- The commit machine lives in `app/samples.c` (`groove_samples_capture_*`): bank data lands beyond the current image while audio plays (first free pad; a full bank replaces the last pad), sector 0 — header plus entry 0's first bytes — is rewritten last under unbind via read-modify-write, then the full-bank CRC and `bind()`. The RAM `header`/`total` must be synced to the new image before `bind()`. `groove_samples_begin` is rejected while the machine holds the bank.
+- `web/synth/sea_encode.h`'s whole-buffer wrapper must stay byte-identical with the streaming path — browser WAV imports depend on it. The encoder DQT is `web/synth/sample_dqt.inc`; `capture.c` defines `FM1_DSP_DATA` empty before including it so the table stays in flash rodata, not the tight audio SRAM region. `web/synth` is on the firmware include path for this.
+- Device-only checks (needs hardware): A2DP capture quality, commit-time output blips, real free-heap staging sizes, control-task latency (the GRAB page shows INPUT OVERLOAD on ring drops).
 
 ## Post-link validation is the safety net
 
 `Test-Firmware` in `sdk/Build.ps1` fails the build if: the ELF carries sections outside the whitelist (`.text/.data/.bss/ram0_data/ram0_bss/boot_info/cache_ram_data/cache_ram_bss`); required runtime symbols are missing or SRAM mis-placed; LVGL, extra filesystems or unsupported SDK link members appear; runtime heap < 48 KiB; the startup entry is not the fixed 0x02000120. Such failures mean a layout/placement change broke a platform invariant — fix the placement (e.g. use `FM1_AUDIO_CODE`), never weaken the check.
+
+Flash budget: `sdk/Package.cs` rejects app images over 453,921 bytes (1 MiB flash minus BT/VM/user partitions); the pre-capture baseline was 445,244, leaving ~8 KiB slack for new features. BSS is cheap — RAM has ~270 KB of heap headroom — so large constant tables belong in BSS, generated at boot (see Live capture).
 
 ## Conventions
 

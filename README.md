@@ -8,6 +8,10 @@ English · [简体中文](README.zh-CN.md)
 
 Select "Source + SDK" in the workbench to download the development kit matching the online release.
 
+## Live capture
+
+Grab audio straight onto the device and mangle it: Bluetooth from a phone, or the FM-1's own master mix. On a SAMPLER track, hold EDIT + REC to open the GRAB page; K1 switches SOURCE between BT AUDIO and MASTER MIX; PLAY records, PLAY again stops and saves to the first free pad (a full bank replaces pad 8). Takes run a few seconds (the screen shows the free time); audio is kept as 32 kHz mono SEA5. An interrupted save keeps the previous bank. Factory demo samples can be replaced the same way; the workbench still imports WAVs.
+
 ## Build
 
 ### macOS / Linux
