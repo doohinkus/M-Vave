@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
+#include "capture.h"
 #include "tuning_hook.h"
 #include "fm1_engine_control.h"
 #include <stdlib.h>
@@ -219,6 +220,7 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 void groove_transfer_poll(void)
 {
     uint32_t now = fm1_millis();
+    fm1_capture_poll();            /* capture owns this slot while committing */
     if (transfer && now - last_activity > 10000U)
         transfer_cancel();
     if (reply_pending) {

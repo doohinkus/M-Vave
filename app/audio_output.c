@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "audio_output.h"
+#include "capture.h"
 #include "fm1_engine_control.h"
 #include "fm1_audio_io.h"
 
@@ -32,9 +33,13 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
             value += ((int64_t)usb_pcm[i] * ((i & 1U) ? right : left)) >> 7;
         output[i] = usb_frames == -2 ? 0 : limit(value);
     }
-    if (fm1_bluetooth_audio_read(bluetooth_pcm, FM1_BLOCK_FRAMES) == FM1_BLOCK_FRAMES) {
+    int bt_frames = fm1_bluetooth_audio_read(bluetooth_pcm, FM1_BLOCK_FRAMES);
+    if (bt_frames == FM1_BLOCK_FRAMES) {
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i)
             output[i] = limit((int64_t)output[i] + (int32_t)bluetooth_pcm[i] * (int32_t)(output_gain * 2U));
+        fm1_capture_feed(bluetooth_pcm, FM1_BLOCK_FRAMES);
+    } else if (!bt_frames) {
+        fm1_capture_feed(NULL, FM1_BLOCK_FRAMES);   /* underrun: capture silence */
     }
     (void)fm1_usb_audio_write(output, FM1_BLOCK_FRAMES);
 }

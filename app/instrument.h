@@ -304,4 +304,14 @@ int groove_samples_write(unsigned offset, const uint8_t *data, unsigned bytes);
 int groove_samples_finish(void);
 void groove_samples_cancel(void);
 int groove_samples_read(unsigned offset, uint8_t *data, unsigned bytes);
+/* Live-capture commit (app/capture.c). target reports the first free pad slot
+ * and the byte room left for it; commit appends a staged SEA5 take as that
+ * slot and poll streams it from the control task. Audio keeps playing while
+ * data lands; only the final header sector briefly mutes the sampler. The
+ * bank header is rewritten last, so an interrupted commit keeps the old bank. */
+int groove_samples_capture_target(unsigned *slot, unsigned *room);
+int groove_samples_capture_commit(const uint8_t *data, unsigned chunks);
+void groove_samples_capture_poll(void);
+int groove_samples_capture_active(void);  /* commit machine holds the bank */
+int groove_samples_capture_result(void);  /* 0 busy, 1 saved, negative error */
 #endif

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
+#include "capture.h"
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
@@ -147,7 +148,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 }
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
  * quarter of the 64-step pattern. All drawing and edits run on app_control. */
-enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, DOT, STARTUP };
+enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, DOT, STARTUP, CAPTURE };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
 static const uint16_t colors[8] = {0x3c9f, 0x07bf, 0x4eae, 0x06d4, 0xac9f, 0xed18, 0xff06, 0xfba5};
@@ -1233,14 +1234,20 @@ static void leds(const struct groove_view *v, unsigned visible)
             fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
     unsigned step_pages = visible == STEPS || visible == ACTIONS;
+    unsigned rec_led = writing != 0;
+    if (visible == CAPTURE)
+        rec_led = fm1_capture_state() == FM1_CAPTURE_RECORDING ? blink
+                                                                : fm1_capture_state() == FM1_CAPTURE_COMMIT;
     bits = ((step_pages ? first > 0 : octave < 0) << OCT_DOWN)
         | ((step_pages ? first + 16 < v->sequence_length : octave > 0) << OCT_UP)
         | ((visible == OVERVIEW) << HOME) | ((visible == EFFECTS) << FX)
         | ((groove_arp_enabled(track) != 0) << ARP)
         | ((visible == FM_EDIT && (fm_group == 4 || fm_group == 5)) << SCL)
         | ((visible == STEPS || visible == ACTIONS || visible == STEP_EDIT || visible == RHYTHM) << SEQ)
-        | ((writing != 0) << REC)
-        | ((v->playing != 0) << PLAY) | ((visible == MIX) << GLO)
+        | (rec_led << REC)
+        | ((visible == CAPTURE ? fm1_capture_state() == FM1_CAPTURE_IDLE
+                               : v->playing != 0) << PLAY)
+        | ((visible == MIX) << GLO)
         | ((visible == FM_EDIT || visible == TONE_EDIT || visible == FM_QUICK || visible == STEP_EDIT) << EDIT)
         | ((visible == FM_ENV) << ENV) | ((visible == FM_LFO) << LFO)
         | ((visible == PROJECT || visible == SOURCE || (visible == ACTIONS && action_confirm)) << SAVE);
@@ -1249,8 +1256,84 @@ static void leds(const struct groove_view *v, unsigned visible)
         if (changed & (1U << key)) fm1_led_set(key, (bits >> key) & 1U);
     button_led_cache = (uint16_t)bits;
 }
+/* Seconds with one decimal, centiseconds in, e.g. 3400 -> "3.4". */
+static void seconds_label(char out[13], unsigned centis)
+{
+    char digits[12];
+    decimal(digits, (int)(centis / 100u), 2);
+    unsigned length = strlen(digits);
+    memcpy(out, digits, length - 1);
+    out[length - 1] = '.';
+    out[length] = digits[length - 1];
+    out[length + 1] = 0;
+}
+
+/* Grab page: capture what the Bluetooth link plays into a sampler slot. The
+ * body repaints from a signature of everything it shows, refreshed a few
+ * times a second while a take runs. */
+static void capture_draw(void)
+{
+    enum fm1_capture_state st = fm1_capture_state();
+    uint32_t sig = (uint32_t)st * 33u + (uint32_t)fm1_capture_error() * 33u
+        + fm1_capture_slot() * 33u + fm1_capture_drops() * 33u
+        + (frame_time >> 8) + (fm1_capture_ms() >> 7);   /* ~8 body repaints/s */
+    if (cache->middle_cache == sig) return;
+    cache->middle_cache = sig;
+    paint_fill(0, 32, 240, 208, BACK);
+    memset(cache->foot_cache, 0xff, sizeof cache->foot_cache);
+    text(8, 42, "GRAB BT AUDIO", 2, ACCENT, BACK);
+    unsigned slot = fm1_capture_slot();
+    if (slot < 8) {
+        char pad[16] = "PAD ";
+        char digits[4];
+        decimal(digits, (int)slot + 1, 1);
+        strcat(pad, digits);
+        text(8, 76, pad, 2, TEXT, BACK);
+    }
+    if (st == FM1_CAPTURE_RECORDING) {
+        char timer[13];
+        seconds_label(timer, fm1_capture_ms());
+        text(8, 110, "REC", 2, (frame_time >> 8) & 1u ? AMBER : DIM, BACK);
+        text(70, 110, timer, 2, TEXT, BACK);
+        char cap[24] = "FREE ";
+        char seconds[13];
+        seconds_label(seconds, fm1_capture_deciseconds() * 100u);
+        strcat(cap, seconds);
+        strcat(cap, "S");
+        text(8, 146, cap, 1, DIM, BACK);
+    } else if (st == FM1_CAPTURE_COMMIT) {
+        text(8, 110, "SAVING - KEEP GOING", 1, TEXT, BACK);
+        text(8, 132, "SOUND BLIPS WHILE IT LANDS", 1, DIM, BACK);
+    } else if (st == FM1_CAPTURE_SAVED) {
+        char line[24] = "SAVED TO ";
+        char digits[4];
+        decimal(digits, (int)slot + 1, 1);
+        strcat(line, slot < 8 ? "PAD " : "PAD");
+        strcat(line, digits);
+        text(8, 110, line, 2, GREEN, BACK);
+        text(8, 146, "SAMPLER TRACK PLAYS IT NOW", 1, DIM, BACK);
+    } else if (st == FM1_CAPTURE_ERROR) {
+        static const char *const messages[] = {
+            "NO BLUETOOTH AUDIO LINK", "SAMPLE BANK BUSY", "SAMPLE BANK FULL",
+            "NOT ENOUGH MEMORY", "TAKE TOO SHORT", "FLASH ERROR"};
+        unsigned code = (unsigned)fm1_capture_error();
+        text(8, 110, messages[code <= FM1_CAPTURE_FLASH ? code : FM1_CAPTURE_FLASH], 1, AMBER, BACK);
+    } else {
+        text(8, 110, "READY", 2, TEXT, BACK);
+        text(8, 146, "PHONE PLAYS - FM1 RECORDS", 1, DIM, BACK);
+    }
+    if (fm1_capture_drops() && st == FM1_CAPTURE_RECORDING)
+        text(8, 165, "INPUT OVERLOAD", 1, AMBER, BACK);
+    text(8, 231, st == FM1_CAPTURE_RECORDING ? "PLAY STOP  HOME DISCARD"
+                                             : "PLAY RECORD  HOME BACK", 1, DIM, BACK);
+}
+
 static __attribute__((noinline)) void edit_page_draw(unsigned visible)
 {
+    if (visible == CAPTURE) {
+        capture_draw();
+        return;
+    }
     uint32_t sig = visible * 33U + action + (action_confirm << 8);
     sig = sig * 33U + cursor;
     sig = sig * 33U + source_preview;
@@ -2326,11 +2409,19 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (tapped) page = page == MIX ? music_page : MIX;
     }
     if ((controls->buttons & (BUTTON(EDIT) | BUTTON(REC))) == (BUTTON(EDIT) | BUTTON(REC)) &&
-        (pressed & (BUTTON(EDIT) | BUTTON(REC))) && groove_source_type(track) == GROOVE_DX7) {
-        writing = rec_before_press;
-        edit_down = glo_down = 0;
-        page = NAME; name_cursor = 0;
-        goto controls_done;
+        (pressed & (BUTTON(EDIT) | BUTTON(REC)))) {
+        unsigned source = groove_source_type(track);
+        if (source == GROOVE_DX7) {
+            writing = rec_before_press;
+            edit_down = glo_down = 0;
+            page = NAME; name_cursor = 0;
+            goto controls_done;
+        }
+        if (source == GROOVE_SAMPLE) {   /* EDIT+REC grabs audio into the sampler */
+            edit_down = glo_down = 0;
+            page = CAPTURE;
+            goto controls_done;
+        }
     }
     if (pressed & (BUTTON(HOME) | BUTTON(SEQ) | BUTTON(FX) | BUTTON(SCL) |
                    BUTTON(EDIT) | BUTTON(ENV) | BUTTON(LFO))) {
@@ -2338,6 +2429,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (pressed & BUTTON(HOME)) {
             if (page == ACTIONS && action_confirm) action_confirm = 0;
             else if (page == BLE && ble_forget == 1) ble_forget = 0;
+            else if (page == CAPTURE) {
+                fm1_capture_cancel();
+                page = OVERVIEW;
+            }
             else if (page == OVERVIEW) {
                 preset_refresh(); project_result = 0; page = PRESET_BROWSER;
             } else page = OVERVIEW;
@@ -2473,6 +2568,17 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 page = music_page;
             }
         }
+        goto controls_done;
+    }
+    if (page == CAPTURE) {
+        play_handled = 1;              /* PLAY drives the take, not the transport */
+        enum fm1_capture_state st = fm1_capture_state();
+        if ((pressed & BUTTON(PLAY)) && st != FM1_CAPTURE_COMMIT) {
+            if (st == FM1_CAPTURE_RECORDING) fm1_capture_stop();
+            else fm1_capture_arm();
+        }
+        if ((pressed & BUTTON(REC)) && st == FM1_CAPTURE_RECORDING)
+            fm1_capture_stop();
         goto controls_done;
     }
     if (page == ACTIONS) {
@@ -2845,6 +2951,10 @@ controls_done:
         if (!(pressed & BUTTON(EDIT))) edit_down = 0;
         if (page != STEPS) seq_down = 0;
     }
+    /* Leaving the capture page never leaves a take running unseen. */
+    if (old_page == CAPTURE && page != CAPTURE &&
+        fm1_capture_state() == FM1_CAPTURE_RECORDING)
+        fm1_capture_cancel();
     if (page != OVERVIEW) rec_down = 0;
     if (page != old_page && page != ARP_EDIT) arp_down = arp_long = 0;
     /* Manual selection must not be overwritten by the recording cursor on

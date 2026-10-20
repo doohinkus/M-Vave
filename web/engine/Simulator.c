@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* Browser platform adapter: in-memory display, storage and MIDI input. */
 #include "internal.h"
+#include "capture.h"
 #include "sampledrum.h"
 #include "fm1_sea.h"
 #include "fm1_engine_control.h"
@@ -24,6 +25,7 @@ static uint32_t now_ms, frame_revision, frame_dirty, flash_revision;
 static uint64_t frames;
 static unsigned gate, midi_read, midi_write, midi_reset;
 static uint8_t radio_features, radio_role;
+static uint8_t bt_link;                /* preview stand-in for an A2DP link */
 static struct { uint8_t data[3], count; } midi[MIDI_QUEUE];
 static int32_t previous[FM1_BLOCK_WORDS];
 static float output[FM1_BLOCK_WORDS];
@@ -107,6 +109,10 @@ void fm1_bluetooth_get_status(struct fm1_bluetooth_status *value)
     if (!value) return;
     memset(value, 0, sizeof *value);
     value->features = radio_features;
+    /* sim_bt_link stands in for a real A2DP link so the grab page is usable
+     * in the preview and the capture pipeline is testable headlessly. */
+    value->audio_connected = radio_features & FM1_BT_AUDIO ? bt_link : 0;
+    value->audio_playing = bt_link;
 }
 int fm1_ble_set_role(enum fm1_ble_role role)
 {
@@ -408,7 +414,50 @@ int fm1_usb_audio_read(int32_t *pcm, unsigned frames, uint16_t gains[2])
     gains[0] = gains[1] = 0;
     return 0;
 }
+/* The browser has no hardware streams; the same APP mixer still runs. */
+static int16_t bt_block[FM1_BLOCK_WORDS];
+static uint8_t bt_block_valid;
 int fm1_bluetooth_audio_read(int16_t *pcm, unsigned frames)
-{ return pcm && frames == FM1_BLOCK_FRAMES ? 0 : -1; }
+{
+    if (!pcm || frames != FM1_BLOCK_FRAMES) return -1;
+    if (!bt_block_valid) return 0;
+    memcpy(pcm, bt_block, sizeof bt_block);
+    bt_block_valid = 0;
+    return (int)frames;
+}
+EXPORT("sim_bt_link") void sim_bt_link(unsigned connected) { bt_link = (uint8_t)!!connected; }
+/* Queue one stereo block; file_buffer holds interleaved L/R int16 frames. */
+EXPORT("sim_bt_pcm") int sim_bt_pcm(void)
+{
+    memcpy(bt_block, file_buffer, sizeof bt_block);
+    bt_block_valid = 1;
+    return 0;
+}
+/* Headless end-to-end check of the grab pipeline: link, arm, feed a sine,
+ * stop, commit, rebind. Returns 0 on success or a negative stage marker. */
+EXPORT("sim_capture_selftest") int sim_capture_selftest(unsigned blocks)
+{
+    if (blocks < 8 || blocks > 1600u) return -1;   /* 0.1 .. 20 s of input */
+    sim_bt_link(1);
+    fm1_capture_arm();
+    if (fm1_capture_state() != FM1_CAPTURE_RECORDING) return -2;
+    for (unsigned b = 0; b < blocks; ++b) {
+        int16_t block[FM1_BLOCK_WORDS];
+        for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
+            unsigned at = b * FM1_BLOCK_FRAMES + i;
+            int16_t s = (int16_t)(9000 * (int)((at * 110) % 44100) / 44100);
+            block[2 * i] = block[2 * i + 1] = s;
+        }
+        fm1_capture_feed(block, FM1_BLOCK_FRAMES);
+        fm1_capture_poll();
+    }
+    fm1_capture_stop();
+    unsigned guard = 0;
+    while (fm1_capture_state() == FM1_CAPTURE_COMMIT && ++guard < 100000u)
+        fm1_capture_poll();
+    int result = fm1_capture_state() == FM1_CAPTURE_SAVED ? 0 : -3;
+    fm1_capture_poll();            /* let the result page settle */
+    return result;
+}
 int fm1_usb_audio_write(const int32_t *pcm, unsigned frames)
 { return pcm && frames == FM1_BLOCK_FRAMES ? 0 : -1; }
